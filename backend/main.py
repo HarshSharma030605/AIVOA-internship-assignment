@@ -101,7 +101,7 @@ def extract_complaint_node(state: AgentState):
     if not api_key:
         raise ValueError("GROQ_API_KEY environment variable is missing.")
 
-    llm = ChatGroq(temperature=0, model="gemma2-9b-it", groq_api_key=api_key)
+    llm = ChatGroq(temperature=0, model="openai/gpt-oss-20b", groq_api_key=api_key)
     structured_llm = llm.with_structured_output(ExtractedComplaintSchema)
     
     prompt = f"""
@@ -177,7 +177,7 @@ async def refine_complaint_with_chat(request: ChatRefinementRequest):
     if not api_key:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY environment variable is missing.")
 
-    llm = ChatGroq(temperature=0, model="gemma2-9b-it", groq_api_key=api_key)
+    llm = ChatGroq(temperature=0, model="openai/gpt-oss-20b", groq_api_key=api_key)
     structured_llm = llm.with_structured_output(ExtractedComplaintSchema)
     
     prompt = f"""
