@@ -38,11 +38,22 @@ A modern, full-stack Quality Management System (QMS) designed to automate the in
 ## 📂 Project Architecture
 
 ```text
-AIVOA-internship-assignment/
-├── backend/
-│   ├── main.py              # FastAPI application, database models, and LangGraph workflow
-│   └── qms_complaints.db    # SQLite relational database (auto-generated)
-├── frontend/                # React & Redux UI workspace
+aivoa-qms-assignment/
+├── backend/                  
+└── frontend/                 
+    ├── index.html            # Google Inter font imported here
+    ├── package.json          
+    ├── tailwind.config.js    # Tailwind configuration
+    ├── src/
+    │   ├── main.jsx          # React entry point
+    │   ├── index.css         # Tailwind directives
+    │   ├── App.jsx           # Main layout (Two-column grid)
+    │   ├── redux/
+    │   │   ├── store.js      
+    │   │   └── complaintSlice.js # API calls and global state
+    │   └── components/
+    │       ├── ComplaintForm.jsx
+    │       └── AiAssistant.jsx  
 ├── requirements.txt         # Python dependencies
 └── README.md                # Project documentation
 
