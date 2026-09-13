@@ -20,9 +20,7 @@ export const extractData = createAsyncThunk('complaint/extract', async (payload)
   if (payload.file) formData.append('file', payload.file);
   if (payload.text) formData.append('text', payload.text);
   
-  const response = await axios.post(`${API_BASE}/extract`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  });
+  const response = await axios.post(`${API_BASE}/extract`, formData);
   return response.data;
 });
 
@@ -54,7 +52,7 @@ export const saveComplaint = createAsyncThunk('complaint/save', async (_, { getS
       ai_risk_verdict: currentState.ai_risk_verdict
     }
   };
-  const response = await axios.post(`${API_BASE}/complaints`, payload);
+  const response = await axios.post(`${API_BASE}/complaints`, currentState);
   return response.data;
 });
 
@@ -79,20 +77,37 @@ const complaintSlice = createSlice({
       .addCase(extractData.fulfilled, (state, action) => {
         state.status = 'success';
         state.progress = 100;
-        const { details, triage } = action.payload;
-        state.formData = { ...details, ...triage };
+        
+        // Merge the flat response payload directly into form data
+        state.formData = { 
+          ...state.formData, 
+          ...action.payload 
+        };
+        
         state.chatHistory.push({ role: 'ai', text: 'Extraction complete. I have populated the QMS form.' });
       })
-      .addCase(extractData.rejected, (state) => {
+      .addCase(extractData.rejected, (state, action) => {
         state.status = 'failed';
         state.progress = 0;
+        console.error("Extraction error:", action.error);
         state.chatHistory.push({ role: 'ai', text: 'Error extracting data. Please check the backend connection.' });
       })
-      .addCase(refineData.pending, (state) => { state.status = 'loading'; })
+      .addCase(refineData.pending, (state) => { 
+        state.status = 'loading'; 
+      })
       .addCase(refineData.fulfilled, (state, action) => {
         state.status = 'success';
-        const { details, triage } = action.payload;
-        state.formData = { ...details, ...triage };
+        
+        // Filter out null or undefined values so they don't overwrite existing good data
+        const filteredPayload = Object.fromEntries(
+          Object.entries(action.payload).filter(([_, value]) => value !== null && value !== undefined)
+        );
+
+        state.formData = { 
+          ...state.formData, 
+          ...filteredPayload 
+        };
+        
         state.chatHistory.push({ role: 'ai', text: 'Form fields updated successfully based on your instructions.' });
       })
       .addCase(saveComplaint.fulfilled, (state) => {

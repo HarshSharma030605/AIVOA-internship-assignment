@@ -1,5 +1,6 @@
 import os
 import io
+import json
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,6 @@ from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
 from typing_extensions import TypedDict
 
-# Load environment variables (.env file containing GROQ_API_KEY)
 load_dotenv()
 
 # ==========================================
@@ -59,9 +59,9 @@ def get_db():
         db.close()
 
 # ==========================================
-# 2. PYDANTIC SCHEMAS FOR API & AGENT
+# 2. FLATTENED PYDANTIC SCHEMAS
 # ==========================================
-class ComplaintDetailsSchema(BaseModel):
+class ExtractedComplaintSchema(BaseModel):
     complaint_source: Optional[str] = Field(None, description="Source of complaint (Email, Phone, etc.)")
     customer_name: Optional[str] = Field(None, description="Reporting customer or facility name")
     product_name: Optional[str] = Field(None, description="Name of the pharmaceutical product")
@@ -72,18 +72,16 @@ class ComplaintDetailsSchema(BaseModel):
     complaint_type: Optional[str] = Field(None, description="Type/Category of complaint")
     complaint_date: Optional[str] = Field(None, description="Date complaint occurred or reported")
     detailed_description: Optional[str] = Field(None, description="Comprehensive description of the defect or event")
-
-class TriageAssessmentSchema(BaseModel):
+    
     initial_severity: Optional[str] = Field(None, description="Initial Severity level (Critical, High, Medium, Low)")
     priority: Optional[str] = Field(None, description="Priority level (High, Medium, Low)")
     ai_risk_verdict: Optional[str] = Field(None, description="2-3 sentence AI assessment explaining risk rationale")
-
-class ExtractedComplaintSchema(BaseModel):
-    details: ComplaintDetailsSchema
-    triage: TriageAssessmentSchema
-
-class ExtractTextRequest(BaseModel):
-    text: str
+    root_cause_recommendations: List[str] = Field(default_factory=list, description="Top 2-3 probable technical or manufacturing root causes")
+    immediate_containment: Optional[str] = Field(default=None, description="Immediate action required (e.g., quarantine lot)")
+    corrective_action: Optional[str] = Field(default=None, description="Action to remediate existing issue")
+    preventive_action: Optional[str] = Field(default=None, description="Action to prevent future recurrence")
+    fda_reportable: bool = Field(default=False, description="True if event involves severe adverse reaction, patient harm, hospitalization, or death requiring FDA reporting")
+    fda_reasoning: Optional[str] = Field(default=None, description="Regulatory justification for FDA reportability status")
 
 class ChatRefinementRequest(BaseModel):
     prompt: str
@@ -107,13 +105,17 @@ def extract_complaint_node(state: AgentState):
     prompt = f"""
     You are an expert Pharmaceutical Quality Assurance (QA) assistant.
     Analyze the following customer complaint document/text and extract all relevant structured parameters.
-    Evaluate the pharmaceutical safety risk to assign initial severity and priority, providing a clear explanation in ai_risk_verdict.
+    Evaluate the pharmaceutical safety risk, assign initial severity, priority, and provide:
+    1. Top 2-3 probable technical or manufacturing Root Causes.
+    2. Actionable CAPA recommendations (Immediate Containment, Corrective Action, Preventive Action).
+    3. FDA Adverse Event Flagging (set fda_reportable=True if patient harm, severe reaction, hospitalization, or life-threatening symptoms occurred, with brief justification in fda_reasoning).
 
     Document Content:
     {state['raw_text']}
     """
     
     result = structured_llm.invoke(prompt)
+    print("DEBUG - LLM Extracted Result:", result)
     return {"extracted_data": result.model_dump()}
 
 workflow = StateGraph(AgentState)
@@ -125,10 +127,8 @@ complaint_agent = workflow.compile()
 # ==========================================
 # 4. FASTAPI APP & ENDPOINTS
 # ==========================================
-app = FastAPI(title="Aivoa Pharma QMS Complaint Engine", version="1.0.0")
-@app.get("/")
-async def root():
-    return {"message": "Aivoa API is running. Visit /docs to test the endpoints."}
+app = FastAPI(title="Aivoa Pharma QMS Complaint Engine", version="1.1.0")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -188,34 +188,51 @@ async def refine_complaint_with_chat(request: ChatRefinementRequest):
     User Instruction / Update Request:
     "{request.prompt}"
 
-    Apply the requested changes to the relevant fields while preserving existing correct details. Update ai_risk_verdict if risk parameters change.
+    Apply the requested changes to the relevant fields while preserving existing correct details. Update risk verdicts, CAPA, and FDA flags if parameters change.
     """
     
     result = structured_llm.invoke(prompt)
     return result
 
 @app.post("/api/complaints")
-async def save_complaint(data: ExtractedComplaintSchema, db: Session = Depends(get_db)):
-    db_record = ComplaintModel(
-        complaint_source=data.details.complaint_source,
-        customer_name=data.details.customer_name,
-        product_name=data.details.product_name,
-        batch_number=data.details.batch_number,
-        manufacturing_date=data.details.manufacturing_date,
-        expiry_date=data.details.expiry_date,
-        quantity_affected=data.details.quantity_affected,
-        complaint_type=data.details.complaint_type,
-        complaint_date=data.details.complaint_date,
-        detailed_description=data.details.detailed_description,
-        initial_severity=data.triage.initial_severity,
-        priority=data.triage.priority,
-        ai_risk_verdict=data.triage.ai_risk_verdict
-    )
-    db.add(db_record)
-    db.commit()
-    db.refresh(db_record)
-    return {"status": "success", "complaint_id": db_record.id, "message": "Complaint logged successfully."}
+def save_complaint(data: ExtractedComplaintSchema, db: Session = Depends(get_db)):
+    try:
+        # Map flat Pydantic model directly to database columns
+        db_data = {
+            "complaint_source": data.complaint_source,
+            "customer_name": data.customer_name,
+            "product_name": data.product_name,
+            "batch_number": data.batch_number,
+            "manufacturing_date": data.manufacturing_date,
+            "expiry_date": data.expiry_date,
+            "quantity_affected": data.quantity_affected,
+            "complaint_type": data.complaint_type,
+            "complaint_date": data.complaint_date,
+            "detailed_description": data.detailed_description,
+            "initial_severity": data.initial_severity,
+            "priority": data.priority,
+            "ai_risk_verdict": data.ai_risk_verdict,
+            "created_at": datetime.utcnow()
+        }
+        
+        db_complaint = ComplaintModel(**db_data)
+        db.add(db_complaint)
+        db.commit()
+        db.refresh(db_complaint)
+        
+        return {"message": "Complaint saved successfully!", "id": db_complaint.id}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Database save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/complaints")
 async def list_complaints(db: Session = Depends(get_db)):
-    return db.query(ComplaintModel).all()
+    records = db.query(ComplaintModel).all()
+    results = []
+    for r in records:
+        d = r.__dict__.copy()
+        d.pop("_sa_instance_state", None)
+        results.append(d)
+    return results
