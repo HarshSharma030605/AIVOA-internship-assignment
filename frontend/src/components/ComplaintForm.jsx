@@ -13,15 +13,9 @@ const FormSection = ({ title, children }) => (
 
 const InputField = ({ label, field, fullWidth = false, isTextArea = false }) => {
   const dispatch = useDispatch();
-  // Handles nested Redux state structures (e.g. details.product_name or triage.initial_severity)
-  const value = useSelector((state) => {
-    const keys = field.split('.');
-    let current = state.complaint.formData;
-    for (let k of keys) {
-      current = current?.[k];
-    }
-    return current || '';
-  });
+  
+  // Directly read flat field from formData
+  const value = useSelector((state) => state.complaint.formData[field] ?? '');
 
   const handleChange = (e) => {
     dispatch(updateField({ field, value: e.target.value }));
@@ -43,13 +37,13 @@ const InputField = ({ label, field, fullWidth = false, isTextArea = false }) => 
 
 export default function ComplaintForm() {
   const dispatch = useDispatch();
-  const triage = useSelector((state) => state.complaint.formData.triage || {});
+  const formData = useSelector((state) => state.complaint.formData);
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-full overflow-y-auto">
       
       {/* ⚠️ FDA ADVERSE EVENT BANNER */}
-      {triage.fda_reportable && (
+      {formData.fda_reportable && (
         <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-600 rounded-r-md">
           <div className="flex items-center space-x-2 text-red-700 font-bold">
             <svg className="w-5 h-5 fill-current" viewBox="0 0 20 20">
@@ -57,7 +51,7 @@ export default function ComplaintForm() {
             </svg>
             <span>⚠️ MANDATORY FDA ADVERSE EVENT FLAGGED</span>
           </div>
-          <p className="text-sm text-red-600 mt-1">{triage.fda_reasoning}</p>
+          <p className="text-sm text-red-600 mt-1">{formData.fda_reasoning}</p>
         </div>
       )}
 
@@ -69,38 +63,38 @@ export default function ComplaintForm() {
       </div>
 
       <FormSection title="1. Origin & Customer Details">
-        <InputField label="Complaint Source" field="details.complaint_source" />
-        <InputField label="Customer Name" field="details.customer_name" />
+        <InputField label="Complaint Source" field="complaint_source" />
+        <InputField label="Customer Name" field="customer_name" />
       </FormSection>
 
       <FormSection title="2. Product & Batch Identification">
-        <InputField label="Product Name" field="details.product_name" />
-        <InputField label="Batch/Lot Number" field="details.batch_number" />
-        <InputField label="Manufacturing Date" field="details.manufacturing_date" />
-        <InputField label="Expiry Date" field="details.expiry_date" />
-        <InputField label="Quantity Affected" field="details.quantity_affected" />
+        <InputField label="Product Name" field="product_name" />
+        <InputField label="Batch/Lot Number" field="batch_number" />
+        <InputField label="Manufacturing Date" field="manufacturing_date" />
+        <InputField label="Expiry Date" field="expiry_date" />
+        <InputField label="Quantity Affected" field="quantity_affected" />
       </FormSection>
 
       <FormSection title="3. Complaint Details">
-        <InputField label="Complaint Type" field="details.complaint_type" />
-        <InputField label="Complaint Date" field="details.complaint_date" />
-        <InputField label="Detailed Description" field="details.detailed_description" fullWidth isTextArea />
+        <InputField label="Complaint Type" field="complaint_type" />
+        <InputField label="Complaint Date" field="complaint_date" />
+        <InputField label="Detailed Description" field="detailed_description" fullWidth isTextArea />
       </FormSection>
 
       <FormSection title="4. Initial Assessment & Priority (Triage)">
-        <InputField label="Initial Severity" field="triage.initial_severity" />
-        <InputField label="Priority" field="triage.priority" />
-        <InputField label="AI Risk Verdict" field="triage.ai_risk_verdict" fullWidth isTextArea />
+        <InputField label="Initial Severity" field="initial_severity" />
+        <InputField label="Priority" field="priority" />
+        <InputField label="AI Risk Verdict" field="ai_risk_verdict" fullWidth isTextArea />
       </FormSection>
 
       {/* 🔍 AI ROOT CAUSE RECOMMENDATIONS */}
-      {triage.root_cause_recommendations?.length > 0 && (
+      {formData.root_cause_recommendations?.length > 0 && (
         <div className="mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
           <h3 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-1">
             🔍 AI Root Cause Recommendations
           </h3>
           <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
-            {triage.root_cause_recommendations.map((cause, idx) => (
+            {formData.root_cause_recommendations.map((cause, idx) => (
               <li key={idx}>{cause}</li>
             ))}
           </ul>
@@ -108,28 +102,28 @@ export default function ComplaintForm() {
       )}
 
       {/* 🛡️ AI CAPA RECOMMENDATIONS */}
-      {(triage.immediate_containment || triage.corrective_action || triage.preventive_action) && (
+      {(formData.immediate_containment || formData.corrective_action || formData.preventive_action) && (
         <div className="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
           <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-1">
             🛡️ AI CAPA Recommendations
           </h3>
           <div className="space-y-3 text-sm">
-            {triage.immediate_containment && (
+            {formData.immediate_containment && (
               <div>
                 <span className="font-semibold text-blue-800">Immediate Containment:</span>
-                <p className="text-blue-950">{triage.immediate_containment}</p>
+                <p className="text-blue-950">{formData.immediate_containment}</p>
               </div>
             )}
-            {triage.corrective_action && (
+            {formData.corrective_action && (
               <div>
                 <span className="font-semibold text-blue-800">Corrective Action:</span>
-                <p className="text-blue-950">{triage.corrective_action}</p>
+                <p className="text-blue-950">{formData.corrective_action}</p>
               </div>
             )}
-            {triage.preventive_action && (
+            {formData.preventive_action && (
               <div>
                 <span className="font-semibold text-blue-800">Preventive Action:</span>
-                <p className="text-blue-950">{triage.preventive_action}</p>
+                <p className="text-blue-950">{formData.preventive_action}</p>
               </div>
             )}
           </div>

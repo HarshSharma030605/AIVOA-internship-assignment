@@ -13,6 +13,7 @@ import pypdf
 import docx
 
 from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 from typing_extensions import TypedDict
 
@@ -178,21 +179,64 @@ async def refine_complaint_with_chat(request: ChatRefinementRequest):
         raise HTTPException(status_code=500, detail="GROQ_API_KEY environment variable is missing.")
 
     llm = ChatGroq(temperature=0, model="openai/gpt-oss-20b", groq_api_key=api_key)
-    structured_llm = llm.with_structured_output(ExtractedComplaintSchema)
     
-    prompt = f"""
-    You are an AI assistant helping a Quality Assurance engineer update a complaint form.
-    Current Form State:
-    {request.current_form_data.model_dump_json(indent=2)}
+    system_prompt = """You are an expert Pharmaceutical Quality Assurance (QA) assistant helping a engineer update a complaint form.
+You must update the form fields according to the user instruction while preserving all other valid data.
+You MUST output a valid JSON object matching the exact keys of the ExtractedComplaintSchema:
+- complaint_source (string or null)
+- customer_name (string or null)
+- product_name (string or null)
+- batch_number (string or null)
+- manufacturing_date (string or null)
+- expiry_date (string or null)
+- quantity_affected (string or null)
+- complaint_type (string or null)
+- complaint_date (string or null)
+- detailed_description (string or null)
+- initial_severity (string or null)
+- priority (string or null)
+- ai_risk_verdict (string or null)
+- root_cause_recommendations (array of strings)
+- immediate_containment (string or null)
+- corrective_action (string or null)
+- preventive_action (string or null)
+- fda_reportable (boolean)
+- fda_reasoning (string or null)
 
-    User Instruction / Update Request:
-    "{request.prompt}"
+Return ONLY raw JSON or JSON inside markdown code blocks. Do not add conversational text."""
 
-    Apply the requested changes to the relevant fields while preserving existing correct details. Update risk verdicts, CAPA, and FDA flags if parameters change.
-    """
+    user_prompt = f"""
+Current Form State:
+{request.current_form_data.model_dump_json(indent=2)}
+
+User Instruction / Update Request:
+"{request.prompt}"
+"""
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt)
+    ]
     
-    result = structured_llm.invoke(prompt)
-    return result
+    response = llm.invoke(messages)
+    raw_text = response.content.strip()
+
+    # Clean markdown code blocks if present
+    if raw_text.startswith("```json"):
+        raw_text = raw_text[7:]
+    elif raw_text.startswith("```"):
+        raw_text = raw_text[3:]
+    if raw_text.endswith("```"):
+        raw_text = raw_text[:-3]
+        
+    cleaned_text = raw_text.strip()
+
+    try:
+        updated_data = json.loads(cleaned_text)
+        return updated_data
+    except json.JSONDecodeError as e:
+        print(f"JSON Parse Error: {e}\nRaw Content was: {response.content}")
+        raise HTTPException(status_code=500, detail="Failed to parse LLM refinement response as JSON.")
 
 @app.post("/api/complaints")
 def save_complaint(data: ExtractedComplaintSchema, db: Session = Depends(get_db)):
